@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Claude/Serena
+.claude/
+.serena/
+
+# 运行时生成的历史记录文件
+history_mappings.json
+history_templates.json
+
+# 测试用的 Excel 文件
+*.xls
+*.xlsx
+!doc/*.png
