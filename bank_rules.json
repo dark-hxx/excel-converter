@@ -165,15 +165,20 @@
 
   "上海银行": {
     "bank_type_code": "BOSC",
-    "header_row": 1,
-    "skip_top_rows": 0,
+    "header_row": 6,
+    "skip_top_rows": 5,
     "debit_credit_mode": "two_columns",
+    "account_extract": {
+      "银行账号": {"mode": "cell", "cell": "C3", "strip": true},
+      "账户名称": {"mode": "cell", "cell": "D3", "strip": true},
+      "开户行名称": {"mode": "cell", "cell": "F3", "strip": true}
+    },
     "column_mapping": {
       "交易日期": {"source": "交易时间", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
       "起息日": {"source": "记账日期", "in_fmt": "%Y-%m-%d", "out_fmt": "%Y-%m-%d"},
       "交易后余额": "余额",
-      "借方金额": "借方发生额（付款）",
-      "贷方金额": "贷方发生额（收款）",
+      "借方金额": "借方发生额",
+      "贷方金额": "贷方发生额",
       "对方账号": "对手账号",
       "对方户名": "对手名称",
       "摘要": "摘要",
@@ -186,9 +191,12 @@
 
   "南京银行": {
     "bank_type_code": "NJB",
-    "header_row": 1,
-    "skip_top_rows": 0,
+    "header_row": 3,
+    "skip_top_rows": 2,
     "debit_credit_mode": "two_columns",
+    "account_extract": {
+      "银行账号": {"mode": "cell", "cell": "B2", "strip": true}
+    },
     "column_mapping": {
       "交易日期": {"source": "交易日期", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
       "交易后余额": "账户余额",
@@ -226,9 +234,13 @@
 
   "农商银行": {
     "bank_type_code": "NSB",
-    "header_row": 1,
-    "skip_top_rows": 0,
+    "header_row": 7,
+    "skip_top_rows": 6,
     "debit_credit_mode": "two_columns",
+    "account_extract": {
+      "银行账号": {"mode": "cell", "cell": "B4", "strip": true},
+      "账户名称": {"mode": "cell", "cell": "H3", "strip": true}
+    },
     "column_mapping": {
       "交易日期": {"source": ["交易日期", "交易时间"], "join": " ", "in_fmt": "%Y-%m-%d %H:%M", "out_fmt": "%Y-%m-%d %H:%M:%S", "pad_seconds": true},
       "交易后余额": "余额",
@@ -237,7 +249,8 @@
       "摘要": "摘要",
       "对方户名": "对方户名",
       "对方账号": "对方账号",
-      "备注": "交易信息"
+      "备注": "交易信息",
+      "交易流水号": "交易流水号"
     },
     "fixed_values": {"币种": "10"}
   },
