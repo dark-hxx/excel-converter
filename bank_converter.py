@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 import pandas as pd
 
-from utils import center_window, open_folder
+from utils import center_window, make_searchable_combobox, open_folder
 
 
 # ---------------- 路径与常量 ----------------
@@ -484,8 +484,8 @@ def open_bank_converter_window(parent_root):
     # 银行类型
     tk.Label(win, text='银行类型：').grid(row=0, column=0, sticky='w', padx=10, pady=8)
     bank_var = tk.StringVar()
-    bank_combo = ttk.Combobox(win, textvariable=bank_var,
-                              values=bank_names, state='readonly', width=30)
+    bank_combo, _ = make_searchable_combobox(win, bank_names,
+                                             textvariable=bank_var, width=30)
     bank_combo.grid(row=0, column=1, sticky='w', padx=10, pady=8)
     bank_combo.set(last_bank)
 
@@ -602,7 +602,7 @@ def open_batch_converter_window(parent_root):
 
     win = tk.Toplevel(parent_root)
     win.title('批量混合转换')
-    center_window(win, 920, 680)
+    center_window(win, 920, 720)
     win.transient(parent_root)
     win.grab_set()
     win.focus_set()
@@ -613,6 +613,10 @@ def open_batch_converter_window(parent_root):
     # ---- 文件操作按钮 ----
     file_btn_row = tk.Frame(win)
     file_btn_row.pack(fill='x', padx=10, pady=(10, 4))
+
+    # ---- 底部「开始转换」按钮区（提前 pack 到 side='bottom'，保证窗口空间不足时仍可见） ----
+    action_row = tk.Frame(win)
+    action_row.pack(side='bottom', pady=8)
 
     def add_files():
         paths = filedialog.askopenfilenames(filetypes=[('Excel files', '*.xlsx;*.xls')])
@@ -675,8 +679,9 @@ def open_batch_converter_window(parent_root):
     edit_row.pack(fill='x', padx=10, pady=4)
     tk.Label(edit_row, text='选中行改为：').pack(side='left')
     edit_var = tk.StringVar(value=bank_names[0])
-    ttk.Combobox(edit_row, textvariable=edit_var, values=bank_names,
-                 state='readonly', width=20).pack(side='left', padx=4)
+    edit_combo, _ = make_searchable_combobox(edit_row, bank_names,
+                                             textvariable=edit_var, width=20)
+    edit_combo.pack(side='left', padx=4)
 
     def apply_bank():
         sels = tree.selection()
@@ -727,9 +732,6 @@ def open_batch_converter_window(parent_root):
     log_widget.pack(fill='both', expand=False, padx=10, pady=(0, 6))
 
     # ---- 开始转换 ----
-    action_row = tk.Frame(win)
-    action_row.pack(pady=8)
-
     def do_batch_convert():
         if not path_by_iid:
             messagebox.showwarning('提示', '请先添加文件')
