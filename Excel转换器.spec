@@ -5,7 +5,7 @@ a = Analysis(
     ['excel_converter.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('bank_rules.json', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

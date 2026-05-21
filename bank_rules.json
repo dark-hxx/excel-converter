@@ -1,0 +1,288 @@
+{
+  "_meta": {
+    "version": 1,
+    "description": "各银行流水到统一交易明细模板的转换规则。debit_credit_mode 取值: two_columns / signed_amount / marker_column",
+    "template_headers": [
+      "交易后余额", "账户名称", "账户性质", "银行账号", "关联客户号",
+      "银行流水号", "交易日期", "银行类型", "对账码", "币种",
+      "摘要", "业务参考号", "借方金额", "贷方金额", "客商名称",
+      "客商编号", "开户行名称", "对方账号", "对方户名", "对方开户行",
+      "款项性质代码", "用途", "备注", "交易流水号", "单位名称",
+      "起息日", "借/贷金额"
+    ]
+  },
+
+  "招商银行": {
+    "bank_type_code": "CMB",
+    "header_row": 1,
+    "skip_top_rows": 0,
+    "debit_credit_mode": "two_columns",
+    "column_mapping": {
+      "交易日期": {"source": "交易时间", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
+      "交易后余额": "余额",
+      "借方金额": "借方发生额",
+      "贷方金额": "贷方发生额",
+      "对方账号": "对方账号",
+      "对方户名": "对方户名",
+      "摘要": "摘要",
+      "用途": "用途"
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "工商银行": {
+    "bank_type_code": "ICBC",
+    "header_row": 1,
+    "skip_top_rows": 0,
+    "debit_credit_mode": "two_columns",
+    "column_mapping": {
+      "交易日期": {"source": "交易时间", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
+      "交易后余额": "余额",
+      "借方金额": "借方发生额",
+      "贷方金额": "贷方发生额",
+      "对方账号": "对方账号",
+      "对方户名": "对方单位名称",
+      "摘要": "摘要",
+      "用途": "用途",
+      "业务参考号": "凭证号",
+      "银行账号": "本方账号",
+      "备注": "个性化信息"
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "北京银行": {
+    "bank_type_code": "BJB",
+    "header_row": 3,
+    "skip_top_rows": 2,
+    "debit_credit_mode": "two_columns",
+    "account_extract": {"银行账号": {"mode": "cell", "cell": "B2"}},
+    "column_mapping": {
+      "交易日期": {"source": "交易时间", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
+      "交易后余额": "余额",
+      "借方金额": "借方发生额",
+      "贷方金额": "贷方发生额",
+      "对方户名": "对手方",
+      "对方账号": "对手方账号",
+      "对方开户行": "对手方银行",
+      "用途": "用途",
+      "备注": "备注",
+      "业务参考号": "凭证号",
+      "摘要": "摘要",
+      "银行流水号": "流水号"
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "宁波银行": {
+    "bank_type_code": "NBB",
+    "header_row": 3,
+    "skip_top_rows": 2,
+    "debit_credit_mode": "two_columns",
+    "account_extract": {
+      "银行账号": {"mode": "cell", "cell": "B1", "strip": true},
+      "账户名称": {"mode": "cell", "cell": "B2", "strip": true}
+    },
+    "column_mapping": {
+      "交易日期": {"source": ["交易日期", "交易时间"], "join": " ", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
+      "交易后余额": "余额",
+      "借方金额": "借方金额",
+      "贷方金额": "贷方金额",
+      "对方账号": {"source": "对方账号", "strip_spaces": true},
+      "对方户名": "对方户名",
+      "对方开户行": "凭证号",
+      "摘要": "摘要",
+      "备注": "备注",
+      "银行流水号": "流水号"
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "农业银行": {
+    "bank_type_code": "ABC",
+    "header_row": 2,
+    "skip_top_rows": 1,
+    "debit_credit_mode": "two_columns",
+    "account_extract": {
+      "银行账号": {"mode": "regex", "cell": "A1", "pattern": "账号[:：]\\s*(.+)"}
+    },
+    "column_mapping": {
+      "交易日期": {"source": "交易时间", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
+      "交易后余额": "账户余额",
+      "借方金额": "支出金额",
+      "贷方金额": "收入金额",
+      "对方账号": "对方账号",
+      "对方户名": "对方户名",
+      "用途": "交易用途",
+      "起息日": {"source": "会计日期", "in_fmt": "%Y-%m-%d", "out_fmt": "%Y-%m-%d"}
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "中信银行": {
+    "bank_type_code": "CITIC",
+    "header_row": 3,
+    "skip_top_rows": 2,
+    "debit_credit_mode": "two_columns",
+    "account_extract": {"银行账号": {"mode": "cell", "cell": "C2"}},
+    "column_mapping": {
+      "交易日期": {"source": ["交易日期", "交易时间"], "join": " ", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
+      "交易后余额": "账户余额",
+      "借方金额": "借方发生额",
+      "贷方金额": "贷方发生额",
+      "对方账号": "对方账号",
+      "对方户名": "对方账户名称",
+      "对方开户行": "对方账号开户网点名称",
+      "摘要": "摘要",
+      "业务参考号": "柜员交易号",
+      "备注": "附言",
+      "对账码": "对账编号",
+      "开户行名称": "交易账号开户网点名称"
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "交通银行": {
+    "bank_type_code": "BCM",
+    "header_row": 2,
+    "skip_top_rows": 1,
+    "debit_credit_mode": "two_columns",
+    "account_extract": {
+      "银行账号": {"mode": "cell", "cell": "B1"},
+      "账户名称": {"mode": "cell", "cell": "D1"}
+    },
+    "column_mapping": {
+      "交易日期": {"source": "交易时间", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
+      "交易后余额": "账户余额",
+      "借方金额": "借方发生额（支出）",
+      "贷方金额": "贷方发生额（收入）",
+      "对方账号": "对方账号",
+      "对方户名": "对方户名",
+      "摘要": "摘要"
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "上海银行": {
+    "bank_type_code": "BOSC",
+    "header_row": 1,
+    "skip_top_rows": 0,
+    "debit_credit_mode": "two_columns",
+    "column_mapping": {
+      "交易日期": {"source": "交易时间", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
+      "起息日": {"source": "记账日期", "in_fmt": "%Y-%m-%d", "out_fmt": "%Y-%m-%d"},
+      "交易后余额": "余额",
+      "借方金额": "借方发生额（付款）",
+      "贷方金额": "贷方发生额（收款）",
+      "对方账号": "对手账号",
+      "对方户名": "对手名称",
+      "摘要": "摘要",
+      "用途": "交易用途",
+      "备注": "备注",
+      "交易流水号": "交易流水号"
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "南京银行": {
+    "bank_type_code": "NJB",
+    "header_row": 1,
+    "skip_top_rows": 0,
+    "debit_credit_mode": "two_columns",
+    "column_mapping": {
+      "交易日期": {"source": "交易日期", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
+      "交易后余额": "账户余额",
+      "借方金额": "支出",
+      "贷方金额": "收入",
+      "对方账号": "对方账号",
+      "对方户名": "对方户名",
+      "对方开户行": "对方行名",
+      "摘要": "摘要",
+      "备注": "附言",
+      "银行流水号": "流水号"
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "民生银行": {
+    "bank_type_code": "CMBC",
+    "header_row": 1,
+    "skip_top_rows": 0,
+    "debit_credit_mode": "two_columns",
+    "column_mapping": {
+      "交易日期": {"source": ["交易日期", "交易时间"], "join": " ", "in_fmt": "%Y-%m-%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S", "date_only_first": true},
+      "交易后余额": "账户余额",
+      "借方金额": "借方发生额",
+      "贷方金额": "贷方发生额",
+      "对方户名": "对方名称",
+      "对方账号": "对方账号",
+      "对方开户行": "对方银行",
+      "摘要": " 摘要",
+      "业务参考号": "凭证号",
+      "银行流水号": "流水号"
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "农商银行": {
+    "bank_type_code": "NSB",
+    "header_row": 1,
+    "skip_top_rows": 0,
+    "debit_credit_mode": "two_columns",
+    "column_mapping": {
+      "交易日期": {"source": ["交易日期", "交易时间"], "join": " ", "in_fmt": "%Y-%m-%d %H:%M", "out_fmt": "%Y-%m-%d %H:%M:%S", "pad_seconds": true},
+      "交易后余额": "余额",
+      "借方金额": "支出",
+      "贷方金额": "收入",
+      "摘要": "摘要",
+      "对方户名": "对方户名",
+      "对方账号": "对方账号",
+      "备注": "交易信息"
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "中国银行": {
+    "bank_type_code": "BOC",
+    "header_row": 1,
+    "skip_top_rows": 0,
+    "debit_credit_mode": "signed_amount",
+    "amount_column": "交易金额[ Trade Amount ]",
+    "column_mapping": {
+      "交易日期": {"source": ["交易日期[ Transaction Date ]", "交易时间[ Transaction time ]"], "join": " ", "in_fmt": "%Y%m%d %H:%M:%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
+      "交易后余额": "交易后余额[ After-transaction balance ]",
+      "对方账号": "收款人账号[ Payee's Account Number ]",
+      "对方户名": "收款人名称[ Payee's Name ]",
+      "对方开户行": "收款人开户行名[ Beneficiary account bank ]",
+      "银行账号": "付款人账号[ Debit Account No. ]",
+      "账户名称": "付款人名称[ Payer's Name ]",
+      "开户行名称": "付款人开户行名[ Payer account bank ]",
+      "摘要": "摘要[ Reference ]",
+      "用途": "用途[ Purpose ]",
+      "备注": "交易附言[ Remark ]",
+      "银行流水号": "交易流水号[ Transaction reference number ]",
+      "起息日": {"source": "起息日期[ Value Date ]", "in_fmt": "%Y%m%d", "out_fmt": "%Y-%m-%d"}
+    },
+    "fixed_values": {"币种": "10"}
+  },
+
+  "江西银行": {
+    "bank_type_code": "JXB",
+    "header_row": 1,
+    "skip_top_rows": 0,
+    "debit_credit_mode": "marker_column",
+    "marker_column": {"col": "收支", "amount_col": "交易金额", "jie_value": "支出", "dai_value": "收入"},
+    "column_mapping": {
+      "交易日期": {"source": ["交易日期", "交易时间"], "join": " ", "in_fmt": "%Y%m%d %H%M%S", "out_fmt": "%Y-%m-%d %H:%M:%S"},
+      "交易后余额": "账户余额",
+      "对方账号": "对方账户",
+      "对方户名": "对方账户名",
+      "对方开户行": "相关信息",
+      "摘要": "交易类型",
+      "备注": "附言",
+      "银行账号": "账户号",
+      "银行流水号": "交易流水号"
+    },
+    "fixed_values": {"币种": "10"}
+  }
+}
