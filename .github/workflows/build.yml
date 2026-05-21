@@ -28,7 +28,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller -F -w --icon=icon/file-excel-fill.ico --name "Excel转换器" excel_converter.py
+          pyinstaller -F -w --icon=icon/file-excel-fill.ico --name "Excel转换器" --add-data "bank_rules.json;." excel_converter.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
