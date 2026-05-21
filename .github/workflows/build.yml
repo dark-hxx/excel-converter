@@ -11,10 +11,19 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    outputs:
+      tag_name: ${{ steps.get_version.outputs.tag }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -28,18 +37,12 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller -F -w --icon=icon/file-excel-fill.ico --name "Excel转换器" --add-data "bank_rules.json;." excel_converter.py
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Excel转换器
-          path: dist/Excel转换器.exe
+          pyinstaller -F -w --icon=icon/file-excel-fill.ico --name "Excel转换器_${{ steps.get_version.outputs.tag }}" --add-data "bank_rules.json;." excel_converter.py
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/Excel转换器.exe
+          files: dist/Excel转换器_${{ steps.get_version.outputs.tag }}.exe
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
