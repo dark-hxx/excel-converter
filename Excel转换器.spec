@@ -1,12 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_data_files
+
+# customtkinter 自带主题 JSON 和资源文件，必须随包打入
+ctk_datas = collect_data_files('customtkinter')
 
 a = Analysis(
     ['excel_converter.py'],
     pathex=[],
     binaries=[],
-    datas=[('bank_rules.json', '.')],
-    hiddenimports=[],
+    datas=[('bank_rules.json', '.')] + ctk_datas,
+    hiddenimports=['customtkinter', 'darkdetect'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

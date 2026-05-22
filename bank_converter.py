@@ -1,15 +1,24 @@
-"""银行流水转换：核心逻辑 + 单文件窗口 + 批量混合窗口。"""
+"""银行流水转换：核心逻辑 + 单文件窗口 + 批量混合窗口（苹果风 UI）。"""
 import json
 import os
 import re
 import sys
-import tkinter as tk
 from datetime import datetime
 from decimal import Decimal
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, ttk
 
+import customtkinter as ctk
 import pandas as pd
 
+from apple_theme import (
+    font_ui, font_title, font_mono,
+    BUTTON_PRIMARY, BUTTON_SECONDARY, BUTTON_PLAIN,
+    CARD_STYLE, ENTRY_STYLE, TEXTBOX_STYLE,
+    BLUE, RED, GREEN, ORANGE,
+    TEXT_PRIMARY, TEXT_SECONDARY, HOVER_BG,
+    WINDOW_BG, CARD_BG,
+    show_banner, ask_yes_no, transparent_frame,
+)
 from utils import center_window, make_searchable_combobox, open_folder
 
 
@@ -58,17 +67,19 @@ BANK_FILENAME_KEYWORDS = {
 
 # ---------------- 配置加载 ----------------
 
-def load_bank_rules():
-    """加载银行规则配置。失败时弹错并返回空字典。"""
+def load_bank_rules(banner_area=None):
+    """加载银行规则配置。失败时通过 banner 提示并返回空字典。"""
     try:
         with open(BANK_RULES_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
         return {k: v for k, v in data.items() if not k.startswith('_')}
     except FileNotFoundError:
-        messagebox.showerror('错误', f'未找到银行规则文件: {BANK_RULES_FILE}')
+        if banner_area is not None:
+            show_banner(banner_area, f'未找到银行规则文件: {BANK_RULES_FILE}', 'error', duration=0)
         return {}
     except Exception as e:
-        messagebox.showerror('错误', f'加载银行规则失败: {e}')
+        if banner_area is not None:
+            show_banner(banner_area, f'加载银行规则失败: {e}', 'error', duration=0)
         return {}
 
 
@@ -90,9 +101,8 @@ def save_last_choice(bank, save_dir_path):
 
 
 def guess_bank_by_filename(filename, available_banks):
-    """根据文件名启发式猜银行；猜不到返回 None。available_banks 限定候选范围。"""
+    """根据文件名启发式猜银行；猜不到返回 None。"""
     name = os.path.basename(filename)
-    # 按 key 长度倒序，长关键字优先（避免「中行」匹配到「中信银行」）
     for kw in sorted(BANK_FILENAME_KEYWORDS.keys(), key=len, reverse=True):
         if kw in name:
             bank = BANK_FILENAME_KEYWORDS[kw]
@@ -101,15 +111,32 @@ def guess_bank_by_filename(filename, available_banks):
     return None
 
 
-# ---------------- 转换核心 ----------------
+# ---------------- 转换核心（业务逻辑，UI 无关） ----------------
 
 def _bank_log(log_widget, msg):
-    """日志输出（带自动滚动与刷新）"""
+    """日志输出，按内容自动染色。"""
     if log_widget is None:
         return
-    log_widget.insert(tk.END, msg + '\n')
-    log_widget.see(tk.END)
-    log_widget.update_idletasks()
+    level = None
+    if '失败' in msg or '错误' in msg or '异常' in msg:
+        level = 'error'
+    elif '跳过' in msg or '警告' in msg:
+        level = 'warning'
+    elif '成功' in msg or '完成' in msg:
+        level = 'success'
+
+    line = msg + '\n'
+    try:
+        if level:
+            log_widget.insert('end', line, level)
+        else:
+            log_widget.insert('end', line)
+        log_widget.see('end')
+        log_widget.update_idletasks()
+    except Exception:
+        # 兼容传入非 ctk 控件（保底无染色）
+        log_widget.insert('end', line)
+        log_widget.see('end')
 
 
 def parse_amount(val):
@@ -136,7 +163,7 @@ def _amount_to_str(d):
 
 
 def extract_account_info(file_path, rule):
-    """从顶部行/单元格提取账户信息（账号、户名等）。返回 dict。"""
+    """从顶部行/单元格提取账户信息。"""
     extract_cfg = rule.get('account_extract')
     if not extract_cfg:
         return {}
@@ -144,7 +171,7 @@ def extract_account_info(file_path, rule):
     from openpyxl import load_workbook
     try:
         wb = load_workbook(file_path, data_only=True, read_only=True)
-        ws = wb.worksheets[0]  # 与 pd.read_excel(sheet_name=0) 保持一致
+        ws = wb.worksheets[0]
         result = {}
         for tpl_field, spec in extract_cfg.items():
             cell_addr = spec.get('cell')
@@ -168,7 +195,6 @@ def extract_account_info(file_path, rule):
 
 
 def _get_cell(row, col_name):
-    """从 Series/dict 中安全取值；列不存在返回 None"""
     if col_name is None:
         return None
     try:
@@ -201,7 +227,6 @@ def build_date_value(row, spec):
                 parts.append('')
                 continue
             s = str(v).strip()
-            # 民生银行：A 列含 "2026-04-06 00:00:00"，只取日期部分
             if spec.get('date_only_first') and len(parts) == 0 and ' ' in s:
                 s = s.split(' ')[0]
             parts.append(s)
@@ -213,7 +238,6 @@ def build_date_value(row, spec):
     if not raw:
         return ''
 
-    # 农商银行：时间 HH:mm 缺秒，补 :00
     if spec.get('pad_seconds') and raw.count(':') == 1:
         raw = raw + ':00'
 
@@ -223,11 +247,10 @@ def build_date_value(row, spec):
     try:
         return datetime.strptime(raw, in_fmt).strftime(out_fmt)
     except Exception:
-        return raw  # 解析失败保留原值，让后端校验报错
+        return raw
 
 
 def resolve_field(row, spec):
-    """根据 spec 解析普通字段值（非日期、非金额）"""
     if spec is None:
         return ''
     if isinstance(spec, str):
@@ -292,7 +315,7 @@ def _transform_one_row(row, rule, account_info, bank_type_code):
         if tpl_field in ('交易日期', '起息日'):
             out[tpl_field] = build_date_value(row, spec)
         elif tpl_field in ('借方金额', '贷方金额'):
-            pass  # 由 normalize 统一处理
+            pass
         elif tpl_field == '交易后余额':
             bal_col = spec if isinstance(spec, str) else spec.get('source')
             out[tpl_field] = _amount_to_str(parse_amount(_get_cell(row, bal_col)))
@@ -316,10 +339,7 @@ def _transform_one_row(row, rule, account_info, bank_type_code):
 
 
 def convert_bank_rows(file_path, rule, log_widget=None):
-    """读取并转换一个文件，返回 (rows_list, skipped_count, error_msg)。
-
-    error_msg 非空表示失败；rows_list 可能为空（表示无有效行）。
-    """
+    """读取并转换一个文件，返回 (rows_list, skipped_count, error_msg)。"""
     try:
         header_row = rule.get('header_row', 1)
         df = pd.read_excel(file_path, sheet_name=0,
@@ -352,7 +372,7 @@ def convert_bank_rows(file_path, rule, log_widget=None):
 
 
 def _write_bank_xlsx(rows, save_path):
-    """把 rows 写入指定 xlsx，所有单元格按文本格式。失败抛异常。"""
+    """把 rows 写入指定 xlsx，所有单元格按文本格式。"""
     from openpyxl import load_workbook
     from openpyxl.styles import numbers
 
@@ -368,7 +388,7 @@ def _write_bank_xlsx(rows, save_path):
 
 
 def convert_bank_file(file_path, bank_name, rule, save_dir_path, log_widget):
-    """单文件转换（写出独立文件）。成功返回 True。"""
+    """单文件转换。成功返回 True。"""
     _bank_log(log_widget, f'开始处理 [{bank_name}] {file_path}')
 
     rows, skipped, err = convert_bank_rows(file_path, rule, log_widget)
@@ -396,8 +416,10 @@ def convert_bank_file(file_path, bank_name, rule, save_dir_path, log_widget):
     return True
 
 
+# ---------------- 预览窗口 ----------------
+
 def preview_bank_file(file_path, bank_name, rule, win_parent, log_widget):
-    """读取前 5 行做转换预演，弹窗用 Treeview 展示关键字段。不写文件。"""
+    """读取前 5 行做转换预演，弹窗用 Treeview 展示关键字段。"""
     try:
         header_row = rule.get('header_row', 1)
         df = pd.read_excel(file_path, sheet_name=0,
@@ -428,44 +450,59 @@ def preview_bank_file(file_path, bank_name, rule, win_parent, log_widget):
         '对方账号': 180, '对方户名': 200, '摘要': 180,
     }
 
-    pw = tk.Toplevel(win_parent)
+    pw = ctk.CTkToplevel(win_parent)
     pw.title(f'预览：{bank_name} - 前 {len(preview_rows)} 行')
-    center_window(pw, 1280, 360)
+    pw.configure(fg_color=WINDOW_BG)
+    center_window(pw, 1320, 400)
     pw.transient(win_parent)
     pw.grab_set()
 
-    container = tk.Frame(pw)
-    container.pack(fill='both', expand=True, padx=10, pady=10)
+    ctk.CTkLabel(pw, text=f'{bank_name} · 前 {len(preview_rows)} 行预览',
+                 font=font_title(14), text_color=TEXT_PRIMARY, anchor='w'
+                 ).pack(fill='x', padx=20, pady=(14, 8))
 
-    style = ttk.Style()
-    style.configure('Preview.Treeview', rowheight=28)
+    table_card = ctk.CTkFrame(pw, **CARD_STYLE)
+    table_card.pack(fill='both', expand=True, padx=16, pady=(0, 12))
 
-    tree = ttk.Treeview(container, columns=preview_cols, show='headings',
-                        height=len(preview_rows), style='Preview.Treeview')
+    tree = ttk.Treeview(table_card, columns=preview_cols, show='headings',
+                        height=len(preview_rows))
     for col in preview_cols:
         tree.heading(col, text=col)
         tree.column(col, width=col_widths.get(col, 120), anchor='w', stretch=False)
     for r in preview_rows:
         tree.insert('', 'end', values=[r.get(c, '') for c in preview_cols])
 
-    vsb = ttk.Scrollbar(container, orient='vertical', command=tree.yview)
-    hsb = ttk.Scrollbar(container, orient='horizontal', command=tree.xview)
+    vsb = ttk.Scrollbar(table_card, orient='vertical', command=tree.yview)
+    hsb = ttk.Scrollbar(table_card, orient='horizontal', command=tree.xview)
     tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
-    tree.grid(row=0, column=0, sticky='nsew')
-    vsb.grid(row=0, column=1, sticky='ns')
-    hsb.grid(row=1, column=0, sticky='ew')
-    container.rowconfigure(0, weight=1)
-    container.columnconfigure(0, weight=1)
+    tree.grid(row=0, column=0, sticky='nsew', padx=(8, 0), pady=(8, 0))
+    vsb.grid(row=0, column=1, sticky='ns', pady=(8, 0))
+    hsb.grid(row=1, column=0, sticky='ew', padx=(8, 0))
+    table_card.rowconfigure(0, weight=1)
+    table_card.columnconfigure(0, weight=1)
 
-    tk.Button(pw, text='关闭', width=10, command=pw.destroy).pack(pady=(0, 10))
+    ctk.CTkButton(pw, text='关闭', command=pw.destroy,
+                  width=120, font=font_ui(12), **BUTTON_PLAIN
+                  ).pack(pady=(0, 14))
 
 
 # ---------------- 单文件转换窗口 ----------------
 
 def open_bank_converter_window(parent_root):
-    """打开「银行流水转换」单文件窗口"""
-    rules = load_bank_rules()
+    win = ctk.CTkToplevel(parent_root)
+    win.title('银行流水转换')
+    win.configure(fg_color=WINDOW_BG)
+    center_window(win, 660, 660)
+    win.transient(parent_root)
+    win.grab_set()
+    win.focus_set()
+
+    # 顶部 banner 区
+    banner_area = transparent_frame(win)
+    banner_area.pack(fill='x', side='top')
+
+    rules = load_bank_rules(banner_area)
     if not rules:
         return
 
@@ -474,75 +511,76 @@ def open_bank_converter_window(parent_root):
     last_bank = last.get('bank') if last.get('bank') in bank_names else bank_names[0]
     last_dir = last.get('save_dir') or ''
 
-    win = tk.Toplevel(parent_root)
-    win.title('银行流水转换')
-    center_window(win, 680, 560)
-    win.transient(parent_root)
-    win.grab_set()
-    win.focus_set()
+    # 标题
+    ctk.CTkLabel(win, text='银行流水转换', font=font_title(16),
+                 text_color=TEXT_PRIMARY, anchor='w'
+                 ).pack(fill='x', padx=20, pady=(14, 8))
 
-    # 银行类型
-    tk.Label(win, text='银行类型：').grid(row=0, column=0, sticky='w', padx=10, pady=8)
-    bank_var = tk.StringVar()
-    bank_combo, _ = make_searchable_combobox(win, bank_names,
-                                             textvariable=bank_var, width=30)
-    bank_combo.grid(row=0, column=1, sticky='w', padx=10, pady=8)
+    # 表单卡片
+    form_card = ctk.CTkFrame(win, **CARD_STYLE)
+    form_card.pack(fill='x', padx=16, pady=(0, 10))
+
+    bank_var = ctk.StringVar()
+    file_var = ctk.StringVar()
+    dir_var = ctk.StringVar(value=last_dir)
+
+    def _row(parent, label_text, row_idx):
+        ctk.CTkLabel(parent, text=label_text, font=font_ui(12, 'bold'),
+                     text_color=TEXT_SECONDARY, width=80, anchor='w'
+                     ).grid(row=row_idx, column=0, sticky='w', padx=(16, 8), pady=10)
+
+    _row(form_card, '银行类型', 0)
+    bank_combo, _ = make_searchable_combobox(form_card, bank_names,
+                                             textvariable=bank_var, width=24)
+    bank_combo.grid(row=0, column=1, sticky='w', padx=(0, 8), pady=10)
     bank_combo.set(last_bank)
 
-    # 文件选择
-    file_var = tk.StringVar()
-    tk.Label(win, text='源文件：').grid(row=1, column=0, sticky='w', padx=10, pady=8)
-    tk.Label(win, textvariable=file_var, fg='blue',
-             wraplength=350, justify='left', anchor='w'
-             ).grid(row=1, column=1, sticky='w', padx=10, pady=8)
+    _row(form_card, '源文件', 1)
+    file_label = ctk.CTkLabel(form_card, textvariable=file_var,
+                              text_color=TEXT_PRIMARY, font=font_ui(11),
+                              anchor='w', justify='left', wraplength=380)
+    file_label.grid(row=1, column=1, sticky='w', padx=(0, 8), pady=10)
 
     def pick_file():
         p = filedialog.askopenfilename(filetypes=[('Excel files', '*.xlsx;*.xls')])
         if p:
             file_var.set(p)
 
-    tk.Button(win, text='选择文件', command=pick_file).grid(row=1, column=2, padx=5)
+    ctk.CTkButton(form_card, text='选择文件', command=pick_file,
+                  width=88, font=font_ui(11), **BUTTON_PLAIN
+                  ).grid(row=1, column=2, padx=(0, 16), pady=10)
 
-    # 保存目录
-    dir_var = tk.StringVar(value=last_dir)
-    tk.Label(win, text='保存目录：').grid(row=2, column=0, sticky='w', padx=10, pady=8)
-    tk.Label(win, textvariable=dir_var, fg='blue',
-             wraplength=350, justify='left', anchor='w'
-             ).grid(row=2, column=1, sticky='w', padx=10, pady=8)
+    _row(form_card, '保存目录', 2)
+    ctk.CTkLabel(form_card, textvariable=dir_var, text_color=TEXT_PRIMARY,
+                 font=font_ui(11), anchor='w', justify='left', wraplength=380
+                 ).grid(row=2, column=1, sticky='w', padx=(0, 8), pady=(10, 16))
 
     def pick_dir():
         d = filedialog.askdirectory()
         if d:
             dir_var.set(d)
 
-    tk.Button(win, text='选择目录', command=pick_dir).grid(row=2, column=2, padx=5)
+    ctk.CTkButton(form_card, text='选择目录', command=pick_dir,
+                  width=88, font=font_ui(11), **BUTTON_PLAIN
+                  ).grid(row=2, column=2, padx=(0, 16), pady=(10, 16))
 
-    # 日志区
-    log_widget = scrolledtext.ScrolledText(win, width=70, height=18)
-    log_header = tk.Frame(win)
-    log_header.grid(row=4, column=0, columnspan=3, sticky='ew', padx=10, pady=(8, 0))
-    tk.Label(log_header, text='日志：').pack(side='left')
-    tk.Button(log_header, text='清空', width=6,
-              command=lambda: log_widget.delete('1.0', tk.END)).pack(side='right')
-    log_widget.grid(row=5, column=0, columnspan=3, padx=10, pady=(0, 10))
+    form_card.columnconfigure(1, weight=1)
 
-    # 操作区
-    btn_frame = tk.Frame(win)
-    btn_frame.grid(row=3, column=0, columnspan=3, pady=10)
+    # 操作按钮区
+    btn_row = transparent_frame(win)
+    btn_row.pack(fill='x', padx=16, pady=(0, 10))
     buttons = {}
 
     def do_preview():
-        bank_name = bank_var.get()
-        file_path = file_var.get()
-        if not bank_name:
-            messagebox.showwarning('提示', '请选择银行类型')
+        if not bank_var.get():
+            show_banner(banner_area, '请选择银行类型', 'warning')
             return
-        if not file_path:
-            messagebox.showwarning('提示', '请选择源文件')
+        if not file_var.get():
+            show_banner(banner_area, '请选择源文件', 'warning')
             return
-        rule = rules.get(bank_name)
+        rule = rules.get(bank_var.get())
         if rule:
-            preview_bank_file(file_path, bank_name, rule, win, log_widget)
+            preview_bank_file(file_var.get(), bank_var.get(), rule, win, log_widget)
 
     def do_convert():
         bank_name = bank_var.get()
@@ -550,49 +588,85 @@ def open_bank_converter_window(parent_root):
         save_path = dir_var.get()
 
         if not bank_name:
-            messagebox.showwarning('提示', '请选择银行类型')
+            show_banner(banner_area, '请选择银行类型', 'warning')
             return
         if not file_path:
-            messagebox.showwarning('提示', '请选择源文件')
+            show_banner(banner_area, '请选择源文件', 'warning')
             return
         if not save_path:
-            messagebox.showwarning('提示', '请选择保存目录')
+            show_banner(banner_area, '请选择保存目录', 'warning')
             return
 
         rule = rules.get(bank_name)
         if not rule:
-            messagebox.showerror('错误', f'未找到银行规则：{bank_name}')
+            show_banner(banner_area, f'未找到银行规则：{bank_name}', 'error')
             return
 
-        log_widget.delete('1.0', tk.END)
-        buttons['preview'].config(state='disabled')
-        buttons['convert'].config(state='disabled', text='处理中...')
+        log_widget.delete('1.0', 'end')
+        buttons['preview'].configure(state='disabled')
+        buttons['convert'].configure(state='disabled', text='处理中...')
         win.update_idletasks()
         try:
             ok = convert_bank_file(file_path, bank_name, rule, save_path, log_widget)
         finally:
-            buttons['preview'].config(state='normal')
-            buttons['convert'].config(state='normal', text='开始转换')
+            buttons['preview'].configure(state='normal')
+            buttons['convert'].configure(state='normal', text='开始转换')
 
         if ok:
             save_last_choice(bank_name, save_path)
-            if messagebox.askyesno('完成', '转换完成，是否打开输出目录？'):
+            if ask_yes_no(win, '完成', '转换完成，是否打开输出目录？',
+                          yes_text='打开目录', no_text='关闭'):
                 open_folder(save_path)
         else:
-            messagebox.showwarning('提示', '转换未完成，请查看日志')
+            show_banner(banner_area, '转换未完成，请查看日志', 'warning')
 
-    buttons['preview'] = tk.Button(btn_frame, text='预览前 5 行', command=do_preview, width=15)
-    buttons['preview'].pack(side='left', padx=5)
-    buttons['convert'] = tk.Button(btn_frame, text='开始转换', command=do_convert,
-                                   bg='#4CAF50', fg='white', width=15)
-    buttons['convert'].pack(side='left', padx=5)
+    buttons['preview'] = ctk.CTkButton(
+        btn_row, text='预览前 5 行', command=do_preview,
+        font=font_ui(12), **BUTTON_SECONDARY)
+    buttons['preview'].pack(side='left', fill='x', expand=True, padx=(0, 4))
+
+    buttons['convert'] = ctk.CTkButton(
+        btn_row, text='开始转换', command=do_convert,
+        font=font_ui(13, 'bold'), **BUTTON_PRIMARY)
+    buttons['convert'].pack(side='left', fill='x', expand=True, padx=(4, 0))
+
+    # 日志卡片
+    log_card = ctk.CTkFrame(win, **CARD_STYLE)
+    log_card.pack(fill='both', expand=True, padx=16, pady=(0, 16))
+
+    log_header = transparent_frame(log_card)
+    log_header.pack(fill='x', padx=14, pady=(10, 4))
+    ctk.CTkLabel(log_header, text='日志', font=font_title(12),
+                 text_color=TEXT_PRIMARY).pack(side='left')
+    ctk.CTkButton(log_header, text='清空',
+                  command=lambda: log_widget.delete('1.0', 'end'),
+                  font=font_ui(11), width=60, **BUTTON_PLAIN
+                  ).pack(side='right')
+
+    log_widget = ctk.CTkTextbox(log_card, height=180, font=font_mono(11),
+                                **TEXTBOX_STYLE)
+    log_widget.pack(fill='both', expand=True, padx=14, pady=(0, 12))
+
+    log_widget.tag_config('error', foreground=RED)
+    log_widget.tag_config('warning', foreground=ORANGE)
+    log_widget.tag_config('success', foreground=GREEN)
 
 
 # ---------------- 批量混合窗口 ----------------
 
 def open_batch_converter_window(parent_root):
-    """打开「批量混合转换」窗口：多文件 + 每文件单独选银行 + 合并到一个 xlsx"""
-    rules = load_bank_rules()
+    win = ctk.CTkToplevel(parent_root)
+    win.title('批量混合转换')
+    win.configure(fg_color=WINDOW_BG)
+    center_window(win, 960, 780)
+    win.transient(parent_root)
+    win.grab_set()
+    win.focus_set()
+
+    banner_area = transparent_frame(win)
+    banner_area.pack(fill='x', side='top')
+
+    rules = load_bank_rules(banner_area)
     if not rules:
         return
 
@@ -600,23 +674,53 @@ def open_batch_converter_window(parent_root):
     last = load_last_choice()
     last_dir = last.get('save_dir') or ''
 
-    win = tk.Toplevel(parent_root)
-    win.title('批量混合转换')
-    center_window(win, 920, 720)
-    win.transient(parent_root)
-    win.grab_set()
-    win.focus_set()
-
-    # 内部状态：iid → 完整文件路径
     path_by_iid = {}
 
-    # ---- 文件操作按钮 ----
-    file_btn_row = tk.Frame(win)
-    file_btn_row.pack(fill='x', padx=10, pady=(10, 4))
+    # 标题
+    ctk.CTkLabel(win, text='批量混合转换', font=font_title(16),
+                 text_color=TEXT_PRIMARY, anchor='w'
+                 ).pack(fill='x', padx=20, pady=(14, 4))
+    ctk.CTkLabel(win, text='可一次添加多家银行的多个文件，逐文件指定银行类型，合并到一个输出文件',
+                 font=font_ui(11), text_color=TEXT_SECONDARY, anchor='w'
+                 ).pack(fill='x', padx=20, pady=(0, 8))
 
-    # ---- 底部「开始转换」按钮区（提前 pack 到 side='bottom'，保证窗口空间不足时仍可见） ----
-    action_row = tk.Frame(win)
-    action_row.pack(side='bottom', pady=8)
+    # 底部按钮区：提前 pack 占位 + 锁定高度，确保即使内容溢出也始终可见
+    action_row = transparent_frame(win, height=68)
+    action_row.pack(side='bottom', fill='x', padx=16, pady=(0, 14))
+    action_row.pack_propagate(False)
+
+    # 文件列表卡片
+    files_card = ctk.CTkFrame(win, **CARD_STYLE)
+    files_card.pack(fill='both', expand=True, padx=16, pady=(0, 10))
+
+    file_btn_row = transparent_frame(files_card)
+    file_btn_row.pack(fill='x', padx=12, pady=(12, 4))
+
+    list_container = transparent_frame(files_card)
+    list_container.pack(fill='both', expand=True, padx=12, pady=(4, 4))
+
+    list_cols = ('#', '文件名', '银行类型', '状态')
+    col_widths = {'#': 40, '文件名': 380, '银行类型': 140, '状态': 160}
+
+    tree = ttk.Treeview(list_container, columns=list_cols, show='headings', height=10)
+    for c in list_cols:
+        tree.heading(c, text=c)
+        tree.column(c, width=col_widths.get(c, 100),
+                    anchor='center' if c in ('#', '状态') else 'w',
+                    stretch=(c == '文件名'))
+
+    vsb = ttk.Scrollbar(list_container, orient='vertical', command=tree.yview)
+    tree.configure(yscrollcommand=vsb.set)
+    tree.grid(row=0, column=0, sticky='nsew')
+    vsb.grid(row=0, column=1, sticky='ns')
+    list_container.rowconfigure(0, weight=1)
+    list_container.columnconfigure(0, weight=1)
+
+    def _renumber():
+        for i, iid in enumerate(tree.get_children(), 1):
+            vals = list(tree.item(iid, 'values'))
+            vals[0] = i
+            tree.item(iid, values=vals)
 
     def add_files():
         paths = filedialog.askopenfilenames(filetypes=[('Excel files', '*.xlsx;*.xls')])
@@ -638,55 +742,33 @@ def open_batch_converter_window(parent_root):
             tree.delete(iid)
         path_by_iid.clear()
 
-    def _renumber():
-        for i, iid in enumerate(tree.get_children(), 1):
-            vals = list(tree.item(iid, 'values'))
-            vals[0] = i
-            tree.item(iid, values=vals)
+    ctk.CTkButton(file_btn_row, text='+ 添加文件', command=add_files,
+                  font=font_ui(12), width=110, **BUTTON_PRIMARY
+                  ).pack(side='left', padx=(0, 4))
+    ctk.CTkButton(file_btn_row, text='- 移除选中', command=remove_selected,
+                  font=font_ui(12), width=100, **BUTTON_SECONDARY
+                  ).pack(side='left', padx=4)
+    ctk.CTkButton(file_btn_row, text='清空', command=clear_all,
+                  font=font_ui(12), width=80, **BUTTON_PLAIN
+                  ).pack(side='left', padx=4)
+    ctk.CTkLabel(file_btn_row, text='Ctrl/Shift 多选',
+                 font=font_ui(11), text_color=TEXT_SECONDARY
+                 ).pack(side='left', padx=12)
 
-    tk.Button(file_btn_row, text='+ 添加文件', command=add_files,
-              bg='#4CAF50', fg='white', width=12).pack(side='left', padx=2)
-    tk.Button(file_btn_row, text='- 移除选中', command=remove_selected, width=12).pack(side='left', padx=2)
-    tk.Button(file_btn_row, text='清空', command=clear_all, width=10).pack(side='left', padx=2)
-    tk.Label(file_btn_row, text='（多选支持 Ctrl/Shift 点击）', fg='#888').pack(side='left', padx=8)
-
-    # ---- 文件列表 Treeview ----
-    list_container = tk.Frame(win)
-    list_container.pack(fill='both', expand=True, padx=10, pady=4)
-
-    list_cols = ('#', '文件名', '银行类型', '状态')
-    col_widths = {'#': 40, '文件名': 380, '银行类型': 140, '状态': 140}
-
-    style = ttk.Style()
-    style.configure('Batch.Treeview', rowheight=26)
-
-    tree = ttk.Treeview(list_container, columns=list_cols, show='headings',
-                        style='Batch.Treeview', height=12)
-    for c in list_cols:
-        tree.heading(c, text=c)
-        tree.column(c, width=col_widths.get(c, 100),
-                    anchor='center' if c in ('#', '状态') else 'w', stretch=(c == '文件名'))
-
-    vsb = ttk.Scrollbar(list_container, orient='vertical', command=tree.yview)
-    tree.configure(yscrollcommand=vsb.set)
-    tree.grid(row=0, column=0, sticky='nsew')
-    vsb.grid(row=0, column=1, sticky='ns')
-    list_container.rowconfigure(0, weight=1)
-    list_container.columnconfigure(0, weight=1)
-
-    # ---- 修改选中行的银行 ----
-    edit_row = tk.Frame(win)
-    edit_row.pack(fill='x', padx=10, pady=4)
-    tk.Label(edit_row, text='选中行改为：').pack(side='left')
-    edit_var = tk.StringVar(value=bank_names[0])
+    # 修改选中行银行
+    edit_row = transparent_frame(files_card)
+    edit_row.pack(fill='x', padx=12, pady=(4, 12))
+    ctk.CTkLabel(edit_row, text='选中行改为：', font=font_ui(12),
+                 text_color=TEXT_SECONDARY).pack(side='left')
+    edit_var = ctk.StringVar(value=bank_names[0])
     edit_combo, _ = make_searchable_combobox(edit_row, bank_names,
-                                             textvariable=edit_var, width=20)
-    edit_combo.pack(side='left', padx=4)
+                                             textvariable=edit_var, width=18)
+    edit_combo.pack(side='left', padx=6)
 
     def apply_bank():
         sels = tree.selection()
         if not sels:
-            messagebox.showinfo('提示', '请先在列表中选中行（可多选）')
+            show_banner(banner_area, '请先在列表中选中行（可多选）', 'info')
             return
         bank = edit_var.get()
         for iid in sels:
@@ -695,60 +777,81 @@ def open_batch_converter_window(parent_root):
             vals[3] = '待转换'
             tree.item(iid, values=vals)
 
-    tk.Button(edit_row, text='应用', command=apply_bank, width=8).pack(side='left', padx=4)
+    ctk.CTkButton(edit_row, text='应用', command=apply_bank,
+                  font=font_ui(12), width=70, **BUTTON_SECONDARY
+                  ).pack(side='left', padx=4)
 
-    # ---- 输出设置 ----
-    out_row = tk.Frame(win)
-    out_row.pack(fill='x', padx=10, pady=(8, 4))
+    # 输出设置卡片
+    out_card = ctk.CTkFrame(win, **CARD_STYLE)
+    out_card.pack(fill='x', padx=16, pady=(0, 10))
 
-    tk.Label(out_row, text='输出目录：').grid(row=0, column=0, sticky='w', pady=2)
-    out_dir_var = tk.StringVar(value=last_dir)
-    tk.Label(out_row, textvariable=out_dir_var, fg='blue',
-             wraplength=600, justify='left', anchor='w'
-             ).grid(row=0, column=1, sticky='w', padx=6)
+    ctk.CTkLabel(out_card, text='输出目录', font=font_ui(12, 'bold'),
+                 text_color=TEXT_SECONDARY, width=80, anchor='w'
+                 ).grid(row=0, column=0, sticky='w', padx=(16, 8), pady=(14, 6))
+
+    out_dir_var = ctk.StringVar(value=last_dir)
+    ctk.CTkLabel(out_card, textvariable=out_dir_var, text_color=TEXT_PRIMARY,
+                 font=font_ui(11), anchor='w', justify='left', wraplength=620
+                 ).grid(row=0, column=1, sticky='w', padx=(0, 8), pady=(14, 6))
 
     def pick_out_dir():
         d = filedialog.askdirectory()
         if d:
             out_dir_var.set(d)
 
-    tk.Button(out_row, text='浏览', command=pick_out_dir, width=8
-              ).grid(row=0, column=2, padx=4)
+    ctk.CTkButton(out_card, text='浏览', command=pick_out_dir,
+                  width=70, font=font_ui(11), **BUTTON_PLAIN
+                  ).grid(row=0, column=2, padx=(0, 16), pady=(14, 6))
 
-    tk.Label(out_row, text='输出文件名：').grid(row=1, column=0, sticky='w', pady=2)
-    out_name_var = tk.StringVar(
+    ctk.CTkLabel(out_card, text='文件名', font=font_ui(12, 'bold'),
+                 text_color=TEXT_SECONDARY, width=80, anchor='w'
+                 ).grid(row=1, column=0, sticky='w', padx=(16, 8), pady=(6, 14))
+
+    out_name_var = ctk.StringVar(
         value=f'合并流水_{datetime.now().strftime("%Y%m%d")}.xlsx')
-    tk.Entry(out_row, textvariable=out_name_var, width=50
-             ).grid(row=1, column=1, sticky='w', padx=6, pady=2)
-    out_row.columnconfigure(1, weight=1)
+    ctk.CTkEntry(out_card, textvariable=out_name_var, width=440, **ENTRY_STYLE
+                 ).grid(row=1, column=1, sticky='w', padx=(0, 8), pady=(6, 14))
 
-    # ---- 日志区 ----
-    log_widget = scrolledtext.ScrolledText(win, height=10)
-    log_header = tk.Frame(win)
-    log_header.pack(fill='x', padx=10, pady=(8, 0))
-    tk.Label(log_header, text='日志：').pack(side='left')
-    tk.Button(log_header, text='清空', width=6,
-              command=lambda: log_widget.delete('1.0', tk.END)).pack(side='right')
-    log_widget.pack(fill='both', expand=False, padx=10, pady=(0, 6))
+    out_card.columnconfigure(1, weight=1)
 
-    # ---- 开始转换 ----
+    # 日志卡片
+    log_card = ctk.CTkFrame(win, **CARD_STYLE)
+    log_card.pack(fill='x', padx=16, pady=(0, 10))
+
+    log_header = transparent_frame(log_card)
+    log_header.pack(fill='x', padx=14, pady=(10, 4))
+    ctk.CTkLabel(log_header, text='日志', font=font_title(12),
+                 text_color=TEXT_PRIMARY).pack(side='left')
+    ctk.CTkButton(log_header, text='清空',
+                  command=lambda: log_widget.delete('1.0', 'end'),
+                  font=font_ui(11), width=60, **BUTTON_PLAIN
+                  ).pack(side='right')
+
+    log_widget = ctk.CTkTextbox(log_card, height=140, font=font_mono(11),
+                                **TEXTBOX_STYLE)
+    log_widget.pack(fill='both', expand=True, padx=14, pady=(0, 12))
+
+    log_widget.tag_config('error', foreground=RED)
+    log_widget.tag_config('warning', foreground=ORANGE)
+    log_widget.tag_config('success', foreground=GREEN)
+
     def do_batch_convert():
         if not path_by_iid:
-            messagebox.showwarning('提示', '请先添加文件')
+            show_banner(banner_area, '请先添加文件', 'warning')
             return
         save_dir_path = out_dir_var.get().strip()
         if not save_dir_path:
-            messagebox.showwarning('提示', '请选择输出目录')
+            show_banner(banner_area, '请选择输出目录', 'warning')
             return
         out_name = out_name_var.get().strip()
         if not out_name:
-            messagebox.showwarning('提示', '请填写输出文件名')
+            show_banner(banner_area, '请填写输出文件名', 'warning')
             return
         if not out_name.lower().endswith('.xlsx'):
             out_name += '.xlsx'
 
-        log_widget.delete('1.0', tk.END)
-        convert_btn.config(state='disabled', text='处理中...')
+        log_widget.delete('1.0', 'end')
+        convert_btn.configure(state='disabled', text='处理中...')
         win.update_idletasks()
 
         merged = []
@@ -766,16 +869,16 @@ def open_batch_converter_window(parent_root):
                 if not rule:
                     tree.item(iid, values=(idx_no, fname, bank, '失败'))
                     _bank_log(log_widget, f'  未找到规则：{bank}，整批终止')
-                    messagebox.showerror('整批终止', f'未找到银行规则：{bank}')
+                    show_banner(banner_area, f'未找到银行规则：{bank}，整批终止', 'error')
                     return
 
                 rows, skipped, err = convert_bank_rows(fpath, rule, log_widget)
                 if err:
                     tree.item(iid, values=(idx_no, fname, bank, '失败'))
                     _bank_log(log_widget, f'  {err}，整批终止')
-                    messagebox.showerror('整批终止',
-                                         f'文件 [{fname}] 转换失败：{err}\n'
-                                         f'已合并行数：{len(merged)}（未写入文件）')
+                    show_banner(banner_area,
+                                f'[{fname}] 转换失败：{err}（已合并 {len(merged)} 行未写入）',
+                                'error')
                     return
                 if not rows:
                     tree.item(iid, values=(idx_no, fname, bank, '无有效行'))
@@ -788,30 +891,33 @@ def open_batch_converter_window(parent_root):
 
             if not merged:
                 _bank_log(log_widget, '\n所有文件均无有效数据，未生成合并文件')
-                messagebox.showwarning('提示', '所有文件均无有效数据，未生成合并文件')
+                show_banner(banner_area, '所有文件均无有效数据，未生成合并文件', 'warning')
                 return
 
             save_path = os.path.join(save_dir_path, out_name)
             try:
                 _write_bank_xlsx(merged, save_path)
             except PermissionError:
-                _bank_log(log_widget, f'\n保存失败：{save_path} 被占用，请关闭后重试')
-                messagebox.showerror('保存失败', f'{save_path} 被占用，请关闭后重试')
+                msg = f'{save_path} 被占用，请关闭后重试'
+                _bank_log(log_widget, f'\n保存失败：{msg}')
+                show_banner(banner_area, f'保存失败：{msg}', 'error')
                 return
             except Exception as e:
                 _bank_log(log_widget, f'\n保存失败：{e}')
-                messagebox.showerror('保存失败', str(e))
+                show_banner(banner_area, f'保存失败：{e}', 'error')
                 return
 
             _bank_log(log_widget,
                       f'\n========== 全部完成：合并 {len(merged)} 行 → {save_path} ==========')
-            save_last_choice(last.get('bank') or bank_names[0], save_dir_path)
-            if messagebox.askyesno('完成',
-                                   f'共合并 {len(merged)} 行到 {out_name}\n是否打开输出目录？'):
+            save_last_choice(bank_names[0], save_dir_path)
+            if ask_yes_no(win, '完成',
+                          f'共合并 {len(merged)} 行到 {out_name}\n是否打开输出目录？',
+                          yes_text='打开目录', no_text='关闭'):
                 open_folder(save_dir_path)
         finally:
-            convert_btn.config(state='normal', text='开始转换')
+            convert_btn.configure(state='normal', text='开始转换')
 
-    convert_btn = tk.Button(action_row, text='开始转换', command=do_batch_convert,
-                            bg='#4CAF50', fg='white', width=18, height=2)
-    convert_btn.pack()
+    convert_btn = ctk.CTkButton(
+        action_row, text='开始转换', command=do_batch_convert,
+        font=font_ui(14, 'bold'), **dict(BUTTON_PRIMARY, height=48))
+    convert_btn.pack(fill='x')
