@@ -19,7 +19,10 @@ from apple_theme import (
     WINDOW_BG, CARD_BG,
     show_banner, ask_yes_no, transparent_frame,
 )
-from utils import center_window, make_searchable_combobox, open_folder
+from utils import (
+    build_unique_save_path, center_window, make_searchable_combobox,
+    open_folder, sanitize_filename_part,
+)
 
 
 # ---------------- 路径与常量 ----------------
@@ -36,6 +39,19 @@ BANK_RULES_FILE = os.path.join(
 
 # 用户上次选择（银行 + 保存目录）
 LAST_CHOICE_FILE = os.path.join(_BASE_DIR, 'last_choice.json')
+BANK_BUTTON_HEIGHT = 36
+BANK_ACTION_BUTTON_HEIGHT = 36
+
+
+def bank_button_style(style, height=BANK_BUTTON_HEIGHT):
+    return dict(style, height=height)
+
+
+def build_timestamped_save_path(directory, filename):
+    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+    filename = sanitize_filename_part(os.path.splitext(filename)[0])
+    return build_unique_save_path(directory, f'{filename}_{timestamp}')
+
 
 # 统一模板表头（27 列，严格匹配后端 ImportBankDetailDTO.getHeadList()）
 BANK_TEMPLATE_HEADERS = [
@@ -400,7 +416,9 @@ def convert_bank_file(file_path, bank_name, rule, save_dir_path, log_widget):
         return False
 
     file_name = os.path.splitext(os.path.basename(file_path))[0]
-    save_path = os.path.join(save_dir_path, f'{file_name}_{bank_name}_统一格式.xlsx')
+    save_path = build_timestamped_save_path(
+        save_dir_path, f'{file_name}_{bank_name}_统一格式'
+    )
 
     try:
         _write_bank_xlsx(rows, save_path)
@@ -483,7 +501,7 @@ def preview_bank_file(file_path, bank_name, rule, win_parent, log_widget):
     table_card.columnconfigure(0, weight=1)
 
     ctk.CTkButton(pw, text='关闭', command=pw.destroy,
-                  width=120, font=font_ui(12), **BUTTON_PLAIN
+                  width=120, font=font_ui(12), **bank_button_style(BUTTON_PLAIN)
                   ).pack(pady=(0, 14))
 
 
@@ -493,7 +511,7 @@ def open_bank_converter_window(parent_root):
     win = ctk.CTkToplevel(parent_root)
     win.title('银行流水转换')
     win.configure(fg_color=WINDOW_BG)
-    center_window(win, 660, 660)
+    center_window(win, 660, 720)
     win.transient(parent_root)
     win.grab_set()
     win.focus_set()
@@ -547,7 +565,7 @@ def open_bank_converter_window(parent_root):
             file_var.set(p)
 
     ctk.CTkButton(form_card, text='选择文件', command=pick_file,
-                  width=88, font=font_ui(11), **BUTTON_PLAIN
+                  width=88, font=font_ui(11), **bank_button_style(BUTTON_PLAIN)
                   ).grid(row=1, column=2, padx=(0, 16), pady=10)
 
     _row(form_card, '保存目录', 2)
@@ -561,7 +579,7 @@ def open_bank_converter_window(parent_root):
             dir_var.set(d)
 
     ctk.CTkButton(form_card, text='选择目录', command=pick_dir,
-                  width=88, font=font_ui(11), **BUTTON_PLAIN
+                  width=88, font=font_ui(11), **bank_button_style(BUTTON_PLAIN)
                   ).grid(row=2, column=2, padx=(0, 16), pady=(10, 16))
 
     form_card.columnconfigure(1, weight=1)
@@ -622,12 +640,12 @@ def open_bank_converter_window(parent_root):
 
     buttons['preview'] = ctk.CTkButton(
         btn_row, text='预览前 5 行', command=do_preview,
-        font=font_ui(12), **BUTTON_SECONDARY)
+        font=font_ui(12), **bank_button_style(BUTTON_SECONDARY))
     buttons['preview'].pack(side='left', fill='x', expand=True, padx=(0, 4))
 
     buttons['convert'] = ctk.CTkButton(
         btn_row, text='开始转换', command=do_convert,
-        font=font_ui(13, 'bold'), **BUTTON_PRIMARY)
+        font=font_ui(13, 'bold'), **bank_button_style(BUTTON_PRIMARY))
     buttons['convert'].pack(side='left', fill='x', expand=True, padx=(4, 0))
 
     # 日志卡片
@@ -640,10 +658,10 @@ def open_bank_converter_window(parent_root):
                  text_color=TEXT_PRIMARY).pack(side='left')
     ctk.CTkButton(log_header, text='清空',
                   command=lambda: log_widget.delete('1.0', 'end'),
-                  font=font_ui(11), width=60, **BUTTON_PLAIN
+                  font=font_ui(11), width=60, **bank_button_style(BUTTON_PLAIN)
                   ).pack(side='right')
 
-    log_widget = ctk.CTkTextbox(log_card, height=180, font=font_mono(11),
+    log_widget = ctk.CTkTextbox(log_card, height=240, font=font_mono(11),
                                 **TEXTBOX_STYLE)
     log_widget.pack(fill='both', expand=True, padx=14, pady=(0, 12))
 
@@ -658,7 +676,7 @@ def open_batch_converter_window(parent_root):
     win = ctk.CTkToplevel(parent_root)
     win.title('批量混合转换')
     win.configure(fg_color=WINDOW_BG)
-    center_window(win, 960, 780)
+    center_window(win, 960, 860)
     win.transient(parent_root)
     win.grab_set()
     win.focus_set()
@@ -743,13 +761,13 @@ def open_batch_converter_window(parent_root):
         path_by_iid.clear()
 
     ctk.CTkButton(file_btn_row, text='+ 添加文件', command=add_files,
-                  font=font_ui(12), width=110, **BUTTON_PRIMARY
+                  font=font_ui(12), width=110, **bank_button_style(BUTTON_PRIMARY)
                   ).pack(side='left', padx=(0, 4))
     ctk.CTkButton(file_btn_row, text='- 移除选中', command=remove_selected,
-                  font=font_ui(12), width=100, **BUTTON_SECONDARY
+                  font=font_ui(12), width=100, **bank_button_style(BUTTON_SECONDARY)
                   ).pack(side='left', padx=4)
     ctk.CTkButton(file_btn_row, text='清空', command=clear_all,
-                  font=font_ui(12), width=80, **BUTTON_PLAIN
+                  font=font_ui(12), width=80, **bank_button_style(BUTTON_PLAIN)
                   ).pack(side='left', padx=4)
     ctk.CTkLabel(file_btn_row, text='Ctrl/Shift 多选',
                  font=font_ui(11), text_color=TEXT_SECONDARY
@@ -778,7 +796,7 @@ def open_batch_converter_window(parent_root):
             tree.item(iid, values=vals)
 
     ctk.CTkButton(edit_row, text='应用', command=apply_bank,
-                  font=font_ui(12), width=70, **BUTTON_SECONDARY
+                  font=font_ui(12), width=70, **bank_button_style(BUTTON_SECONDARY)
                   ).pack(side='left', padx=4)
 
     # 输出设置卡片
@@ -800,15 +818,14 @@ def open_batch_converter_window(parent_root):
             out_dir_var.set(d)
 
     ctk.CTkButton(out_card, text='浏览', command=pick_out_dir,
-                  width=70, font=font_ui(11), **BUTTON_PLAIN
+                  width=70, font=font_ui(11), **bank_button_style(BUTTON_PLAIN)
                   ).grid(row=0, column=2, padx=(0, 16), pady=(14, 6))
 
     ctk.CTkLabel(out_card, text='文件名', font=font_ui(12, 'bold'),
                  text_color=TEXT_SECONDARY, width=80, anchor='w'
                  ).grid(row=1, column=0, sticky='w', padx=(16, 8), pady=(6, 14))
 
-    out_name_var = ctk.StringVar(
-        value=f'合并流水_{datetime.now().strftime("%Y%m%d")}.xlsx')
+    out_name_var = ctk.StringVar(value='合并流水.xlsx')
     ctk.CTkEntry(out_card, textvariable=out_name_var, width=440, **ENTRY_STYLE
                  ).grid(row=1, column=1, sticky='w', padx=(0, 8), pady=(6, 14))
 
@@ -816,7 +833,7 @@ def open_batch_converter_window(parent_root):
 
     # 日志卡片
     log_card = ctk.CTkFrame(win, **CARD_STYLE)
-    log_card.pack(fill='x', padx=16, pady=(0, 10))
+    log_card.pack(fill='both', expand=True, padx=16, pady=(0, 10))
 
     log_header = transparent_frame(log_card)
     log_header.pack(fill='x', padx=14, pady=(10, 4))
@@ -824,10 +841,10 @@ def open_batch_converter_window(parent_root):
                  text_color=TEXT_PRIMARY).pack(side='left')
     ctk.CTkButton(log_header, text='清空',
                   command=lambda: log_widget.delete('1.0', 'end'),
-                  font=font_ui(11), width=60, **BUTTON_PLAIN
+                  font=font_ui(11), width=60, **bank_button_style(BUTTON_PLAIN)
                   ).pack(side='right')
 
-    log_widget = ctk.CTkTextbox(log_card, height=140, font=font_mono(11),
+    log_widget = ctk.CTkTextbox(log_card, height=240, font=font_mono(11),
                                 **TEXTBOX_STYLE)
     log_widget.pack(fill='both', expand=True, padx=14, pady=(0, 12))
 
@@ -894,7 +911,8 @@ def open_batch_converter_window(parent_root):
                 show_banner(banner_area, '所有文件均无有效数据，未生成合并文件', 'warning')
                 return
 
-            save_path = os.path.join(save_dir_path, out_name)
+            output_name = os.path.splitext(out_name)[0]
+            save_path = build_timestamped_save_path(save_dir_path, output_name)
             try:
                 _write_bank_xlsx(merged, save_path)
             except PermissionError:
@@ -911,7 +929,7 @@ def open_batch_converter_window(parent_root):
                       f'\n========== 全部完成：合并 {len(merged)} 行 → {save_path} ==========')
             save_last_choice(bank_names[0], save_dir_path)
             if ask_yes_no(win, '完成',
-                          f'共合并 {len(merged)} 行到 {out_name}\n是否打开输出目录？',
+                          f'共合并 {len(merged)} 行到 {os.path.basename(save_path)}\n是否打开输出目录？',
                           yes_text='打开目录', no_text='关闭'):
                 open_folder(save_dir_path)
         finally:
@@ -919,5 +937,5 @@ def open_batch_converter_window(parent_root):
 
     convert_btn = ctk.CTkButton(
         action_row, text='开始转换', command=do_batch_convert,
-        font=font_ui(14, 'bold'), **dict(BUTTON_PRIMARY, height=48))
+        font=font_ui(14, 'bold'), **bank_button_style(BUTTON_PRIMARY))
     convert_btn.pack(fill='x')

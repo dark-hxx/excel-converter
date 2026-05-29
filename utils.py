@@ -5,6 +5,9 @@ import tkinter as tk
 from tkinter import ttk
 
 
+INVALID_FILENAME_CHARS = '<>:"/\\|?*'
+
+
 def center_window(win, width, height):
     """将窗口居中到屏幕中央并设置尺寸"""
     win.update_idletasks()
@@ -28,6 +31,27 @@ def open_folder(path):
             subprocess.run(['xdg-open', path], check=False)
     except Exception:
         pass
+
+
+def sanitize_filename_part(value):
+    filename = ''.join(
+        '_' if char in INVALID_FILENAME_CHARS else char
+        for char in str(value)
+    ).strip()
+    return filename or '未命名'
+
+
+def build_unique_save_path(directory, filename):
+    save_path = os.path.join(directory, f'{filename}.xlsx')
+    if not os.path.exists(save_path):
+        return save_path
+
+    index = 1
+    while True:
+        save_path = os.path.join(directory, f'{filename}_{index}.xlsx')
+        if not os.path.exists(save_path):
+            return save_path
+        index += 1
 
 
 def make_searchable_combobox(parent, values, **kwargs):

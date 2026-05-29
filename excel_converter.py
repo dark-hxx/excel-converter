@@ -4,12 +4,15 @@ UI 框架：customtkinter
 通用模板映射业务逻辑：保留原实现
 所有 messagebox / simpledialog 已替换为 Banner / CTkInputDialog
 """
+from datetime import datetime
 import json
 import os
 import sys
 from tkinter import filedialog, ttk
 
 import customtkinter as ctk
+from openpyxl import load_workbook
+from openpyxl.styles import numbers
 import pandas as pd
 
 from apple_theme import (
@@ -23,7 +26,7 @@ from apple_theme import (
     show_banner, transparent_frame,
 )
 from bank_converter import open_bank_converter_window, open_batch_converter_window
-from utils import center_window
+from utils import build_unique_save_path, center_window, sanitize_filename_part
 
 
 # ---------------- 路径常量 ----------------
@@ -35,6 +38,111 @@ else:
 
 HISTORY_TEMPLATES_FILE = os.path.join(base_dir, 'history_templates.json')
 HISTORY_MAPPINGS_FILE = os.path.join(base_dir, 'history_mappings.json')
+
+
+def save_text_excel(dataframe, save_path):
+    output_df = dataframe.copy()
+    for col in output_df.columns:
+        output_df[col] = output_df[col].astype(str).replace('nan', '')
+
+    output_df.to_excel(save_path, index=False, sheet_name='Sheet1', engine='openpyxl')
+    wb = load_workbook(save_path)
+    try:
+        ws = wb.active
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row,
+                                min_col=1, max_col=ws.max_column):
+            for cell in row:
+                cell.number_format = numbers.FORMAT_TEXT
+        wb.save(save_path)
+    finally:
+        wb.close()
+
+
+def build_adjusted_split_info(split_info, template_to_file_mapping,
+                              template_columns_ordered):
+    reverse_column_mapping = {
+        v.strip().lower(): k.strip().lower()
+        for k, v in template_to_file_mapping.items()
+    }
+    adjusted_split_info = {}
+    for file_col, split_symbol in split_info.items():
+        tpl_col_lower = reverse_column_mapping.get(file_col.strip().lower())
+        if tpl_col_lower:
+            for orig_col in template_columns_ordered:
+                if orig_col.strip().lower() == tpl_col_lower:
+                    adjusted_split_info[orig_col] = split_symbol
+                    break
+        else:
+            log(f"警告: split_info 中的列 '{file_col}' 未在映射中找到", 'warning')
+    return adjusted_split_info
+
+
+def apply_split_info(dataframe, adjusted_split_info):
+    if not adjusted_split_info:
+        return dataframe
+
+    new_rows = []
+    for index, row in dataframe.iterrows():
+        try:
+            split_values_dict = {}
+            max_length = 1
+            for col_name, sym in adjusted_split_info.items():
+                if col_name in row.index:
+                    if pd.notna(row[col_name]):
+                        values = str(row[col_name]).split(sym)
+                        values = [v.strip().strip(sym).strip() for v in values]
+                        values = [v for v in values if v]
+                        if values:
+                            split_values_dict[col_name] = values
+                            max_length = max(max_length, len(values))
+                        else:
+                            split_values_dict[col_name] = [str(row[col_name])]
+                    else:
+                        split_values_dict[col_name] = ['']
+            if split_values_dict:
+                for i in range(max_length):
+                    new_row = row.copy()
+                    for col_name, values in split_values_dict.items():
+                        new_row[col_name] = values[i] if i < len(values) else ''
+                    new_rows.append(new_row)
+                log(f"信息: 行 {index} 拆分为 {max_length} 行")
+            else:
+                new_rows.append(row)
+        except Exception as row_error:
+            log(f"错误: 处理行 {index} 时出错: {row_error}", 'error')
+            new_rows.append(row)
+    return pd.DataFrame(new_rows)
+
+
+def convert_date_format(fmt):
+    if not fmt:
+        return fmt
+    replacements = [
+        ('yyyy', '%Y'), ('yy', '%y'), ('MM', '%m'),
+        ('dd', '%d'), ('HH', '%H'), ('mm', '%M'), ('ss', '%S'),
+    ]
+    result = fmt
+    for old, new in replacements:
+        result = result.replace(old, new)
+    return result
+
+
+def apply_date_formats(dataframe, date_format_info):
+    for col, fmt_config in date_format_info.items():
+        if col in dataframe.columns:
+            input_fmt = convert_date_format(fmt_config.get('input', ''))
+            output_fmt = convert_date_format(fmt_config.get('output', ''))
+            if input_fmt and output_fmt:
+                def convert_date(val, in_fmt=input_fmt, out_fmt=output_fmt):
+                    if pd.isna(val) or str(val).strip() == '':
+                        return ''
+                    try:
+                        dt = datetime.strptime(str(val).strip(), in_fmt)
+                        return dt.strftime(out_fmt)
+                    except ValueError:
+                        return str(val)
+                dataframe[col] = dataframe[col].apply(convert_date)
+    return dataframe
 
 
 # ---------------- 全局状态（通用模板映射用） ----------------
@@ -289,85 +397,13 @@ def convert_excel_files():
                 template_columns_ordered = list(template_to_file_mapping.keys())
                 mapped_df.columns = template_columns_ordered
 
-                reverse_column_mapping = {
-                    v.strip().lower(): k.strip().lower()
-                    for k, v in template_to_file_mapping.items()
-                }
-                adjusted_split_info = {}
-                for file_col, split_symbol in split_info.items():
-                    tpl_col_lower = reverse_column_mapping.get(file_col.strip().lower())
-                    if tpl_col_lower:
-                        for orig_col in template_columns_ordered:
-                            if orig_col.strip().lower() == tpl_col_lower:
-                                adjusted_split_info[orig_col] = split_symbol
-                                break
-                    else:
-                        log(f"警告: split_info 中的列 '{file_col}' 未在映射中找到",
-                            'warning')
-
-                if adjusted_split_info:
-                    new_rows = []
-                    for index, row in mapped_df.iterrows():
-                        try:
-                            split_values_dict = {}
-                            max_length = 1
-                            for col_name, sym in adjusted_split_info.items():
-                                if col_name in row.index:
-                                    if pd.notna(row[col_name]):
-                                        values = str(row[col_name]).split(sym)
-                                        values = [v.strip().strip(sym).strip() for v in values]
-                                        values = [v for v in values if v]
-                                        if values:
-                                            split_values_dict[col_name] = values
-                                            max_length = max(max_length, len(values))
-                                        else:
-                                            split_values_dict[col_name] = [str(row[col_name])]
-                                    else:
-                                        split_values_dict[col_name] = ['']
-                            if split_values_dict:
-                                for i in range(max_length):
-                                    new_row = row.copy()
-                                    for col_name, values in split_values_dict.items():
-                                        new_row[col_name] = values[i] if i < len(values) else ''
-                                    new_rows.append(new_row)
-                                log(f"信息: 行 {index} 拆分为 {max_length} 行")
-                            else:
-                                new_rows.append(row)
-                        except Exception as row_error:
-                            log(f"错误: 处理行 {index} 时出错: {row_error}", 'error')
-                            new_rows.append(row)
-                            continue
-                    mapped_df = pd.DataFrame(new_rows)
+                adjusted_split_info = build_adjusted_split_info(
+                    split_info, template_to_file_mapping, template_columns_ordered
+                )
+                mapped_df = apply_split_info(mapped_df, adjusted_split_info)
 
                 if date_format_info:
-                    from datetime import datetime
-
-                    def convert_date_format(fmt):
-                        if not fmt:
-                            return fmt
-                        replacements = [
-                            ('yyyy', '%Y'), ('yy', '%y'), ('MM', '%m'),
-                            ('dd', '%d'), ('HH', '%H'), ('mm', '%M'), ('ss', '%S'),
-                        ]
-                        result = fmt
-                        for old, new in replacements:
-                            result = result.replace(old, new)
-                        return result
-
-                    for col, fmt_config in date_format_info.items():
-                        if col in mapped_df.columns:
-                            input_fmt = convert_date_format(fmt_config.get('input', ''))
-                            output_fmt = convert_date_format(fmt_config.get('output', ''))
-                            if input_fmt and output_fmt:
-                                def convert_date(val, in_fmt=input_fmt, out_fmt=output_fmt):
-                                    if pd.isna(val) or str(val).strip() == '':
-                                        return ''
-                                    try:
-                                        dt = datetime.strptime(str(val).strip(), in_fmt)
-                                        return dt.strftime(out_fmt)
-                                    except ValueError:
-                                        return str(val)
-                                mapped_df[col] = mapped_df[col].apply(convert_date)
+                    mapped_df = apply_date_formats(mapped_df, date_format_info)
 
                 all_template_columns = list(template_df.columns)
                 for col in all_template_columns:
@@ -375,28 +411,16 @@ def convert_excel_files():
                         mapped_df[col] = ''
                 mapped_df = mapped_df[all_template_columns]
 
-                file_name = os.path.splitext(os.path.basename(file_path))[0]
+                file_name = sanitize_filename_part(
+                    os.path.splitext(os.path.basename(file_path))[0]
+                )
                 if len(sheet_names) > 1:
-                    file_name += f'_{sheet_name}'
-                save_path = os.path.join(save_dir, f'{file_name}.xlsx')
-
-                for col in mapped_df.columns:
-                    mapped_df[col] = mapped_df[col].astype(str)
-                    mapped_df[col] = mapped_df[col].replace('nan', '')
+                    file_name += f'_{sanitize_filename_part(sheet_name)}'
+                timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+                save_path = build_unique_save_path(save_dir, f'{file_name}_{timestamp}')
 
                 try:
-                    from openpyxl import load_workbook
-                    from openpyxl.styles import numbers
-                    mapped_df.to_excel(save_path, index=False, sheet_name='Sheet1',
-                                       engine='openpyxl')
-                    wb = load_workbook(save_path)
-                    ws = wb.active
-                    for r in ws.iter_rows(min_row=2, max_row=ws.max_row,
-                                          min_col=1, max_col=ws.max_column):
-                        for cell in r:
-                            cell.number_format = numbers.FORMAT_TEXT
-                    wb.save(save_path)
-                    wb.close()
+                    save_text_excel(mapped_df, save_path)
                     log(f"成功: 文件 {file_path} 工作表 {sheet_name} 转换完成 → {save_path}",
                         'success')
                     success_count += 1
@@ -469,10 +493,10 @@ def _show_history_list(items, title, on_click, truncate=80):
         display = item if len(item) <= truncate else '…' + item[-(truncate - 1):]
 
         def make_handler(val=item):
-            def h():
+            def handle_click():
                 on_click(val)
                 win.destroy()
-            return h
+            return handle_click
 
         ctk.CTkButton(
             list_frame, text=display, command=make_handler(),
@@ -507,7 +531,7 @@ def build_main_window():
     root = ctk.CTk()
     apply_apple_theme(root)
     root.title('Excel 转换器')
-    center_window(root, 580, 760)
+    center_window(root, 580, 820)
 
     # 顶部 banner 区（show_banner 注入位置）
     banner_area = transparent_frame(root)
@@ -599,7 +623,7 @@ def build_main_window():
                   font=font_ui(11), width=60, **BUTTON_PLAIN
                   ).pack(side='right')
 
-    log_text = ctk.CTkTextbox(log_card, height=180, font=font_mono(11),
+    log_text = ctk.CTkTextbox(log_card, height=240, font=font_mono(11),
                               **TEXTBOX_STYLE)
     log_text.pack(fill='both', expand=True, padx=16, pady=(0, 14))
 
